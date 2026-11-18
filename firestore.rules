@@ -32,7 +32,8 @@ service cloud.firestore {
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.name == resource.data.name
           && request.resource.data.role == resource.data.role
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt']));
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt', 'cardCount'])
+          && (request.resource.data.cardCount == resource.data.cardCount || (resource.data.cardCount == null && request.resource.data.cardCount == 1) || request.resource.data.cardCount == resource.data.cardCount + 1));
         allow delete: if admin();
       }
 
@@ -46,7 +47,8 @@ service cloud.firestore {
           && request.resource.data.ownerId == request.auth.uid
           && request.resource.data.ownerName is string
           && request.resource.data.grid == resource.data.grid
-          && request.resource.data.numbers == resource.data.numbers);
+          && request.resource.data.numbers == resource.data.numbers
+          && (room(roomId).data.maxCardsPerPlayer == null || getAfter(/databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)).data.cardCount <= room(roomId).data.maxCardsPerPlayer));
       }
 
       match /messages/{messageId} {
