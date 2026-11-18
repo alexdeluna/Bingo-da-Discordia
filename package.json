@@ -1,0 +1,8 @@
+{
+  "name": "bingo-da-familia-delunatech",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:cards": "node ./tests/cards.test.js"
+  }
+}

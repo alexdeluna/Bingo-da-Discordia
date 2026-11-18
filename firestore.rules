@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    // Os documentos adminUsers são cadastrados somente no Console do Firebase.
+    function admin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/adminUsers/$(request.auth.uid)).data.active == true;
+    }
+    function player(roomId) { return signedIn() && exists(/databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)); }
+    function room(roomId) { return get(/databases/$(database)/documents/rooms/$(roomId)); }
+
+    match /rooms/{roomId} {
+      // Jogadores conhecem o código e podem abrir aquela sala; listar salas é administrativo.
+      allow get: if signedIn();
+      allow list: if admin();
+      allow create, delete: if admin();
+      // Apenas o administrador altera o estado do sorteio. Jogadores não escrevem no documento da sala.
+      allow update: if admin() && request.resource.data.createdBy == resource.data.createdBy;
+
+      match /players/{uid} {
+        // Permite verificar/criar o próprio perfil na entrada, sem expor a lista da sala.
+        allow get: if (signedIn() && uid == request.auth.uid) || player(roomId) || admin();
+        allow list: if player(roomId) || admin();
+        allow create: if signedIn() && uid == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.name is string && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 30
+          && request.resource.data.blocked != true;
+        allow update: if admin() || (uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.name == resource.data.name
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt']));
+        allow delete: if admin();
+      }
+
+      match /cards/{cardId} {
+        allow read: if player(roomId) || admin();
+        // Cartelas são criadas somente pelo admin na criação da sala.
+        allow create, delete: if admin();
+        // Cada jogador só pode reivindicar uma cartela livre; grade e números permanecem imutáveis.
+        allow update: if admin() || (player(roomId) && resource.data.ownerId == null
+          && room(roomId).data.status == 'selecting'
+          && request.resource.data.ownerId == request.auth.uid
+          && request.resource.data.ownerName is string
+          && request.resource.data.grid == resource.data.grid
+          && request.resource.data.numbers == resource.data.numbers);
+      }
+
+      match /messages/{messageId} {
+        allow read: if player(roomId) || admin();
+        allow create: if (admin() || (player(roomId) && get(/databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)).data.blocked != true)) && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 300;
+        allow delete: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+        allow update: if false;
+      }
+
+      match /victories/{victoryId} {
+        allow read: if player(roomId) || admin();
+        allow create: if (player(roomId) || admin()) && request.resource.data.uid == request.auth.uid
+          && request.resource.data.status == 'pending' && request.resource.data.cardId is string
+          && get(/databases/$(database)/documents/rooms/$(roomId)/cards/$(request.resource.data.cardId)).data.ownerId == request.auth.uid;
+        allow update: if admin();
+        allow delete: if admin();
+      }
+    }
+    match /history/{gameId} { allow read: if signedIn(); allow write: if admin(); }
+    // Cada pessoa só pode consultar o próprio registro; ninguém pode listar ou editar administradores.
+    match /adminUsers/{uid} {
+      allow get: if signedIn() && uid == request.auth.uid;
+      allow list, create, update, delete: if false;
+    }
+  }
+}
